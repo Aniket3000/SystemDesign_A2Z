@@ -1,0 +1,207 @@
+Alright, let’s compare them side by side so you can literally see how the coupling changes.
+1. Tight-Coupled Implementation (bad example)
+// Tight coupling: Both know about each other’s concrete classes
+
+class WeatherStation {
+    private List<Display> displays = new ArrayList<>();
+    public void addDisplay(Display d) {
+        displays.add(d);
+    }
+    public void setTemperature(int temp) {
+        // Notify all displays
+        for (Display d : displays) {
+            d.update(temp);
+        }
+    }
+}
+class Display {
+    private WeatherStation station; // Holds concrete reference
+    public Display(WeatherStation station) {
+        this.station = station;
+    }
+    public void update(int temperature) {
+        System.out.println("Temperature is: " + temperature);
+    }
+}
+Why tight coupled?
+WeatherStation knows about the Display class directly.
+Display knows about the WeatherStation class directly.
+If you change one, you likely break the other.
+2. Loose-Coupled Implementation (good example)
+// Interfaces to decouple
+interface Observer {
+    void update(int temperature);
+}
+interface Observable {
+    void register(Observer o);
+    void unregister(Observer o);
+    void notifyObservers();
+}
+// Concrete Observable
+class WeatherStation implements Observable {
+    private List<Observer> observers = new ArrayList<>();
+    private int temperature;
+    public void setTemperature(int temp) {
+        this.temperature = temp;
+        notifyObservers();
+    }
+    @Override
+    public void register(Observer o) {
+        observers.add(o);
+    }
+
+    @Override
+    public void unregister(Observer o) {
+        observers.remove(o);
+    }
+    @Override
+    public void notifyObservers() {
+        for (Observer o : observers) {
+            o.update(temperature);
+        }
+    }
+}
+
+// Concrete Observer
+class Display implements Observer {
+    @Override
+    public void update(int temperature) {
+        System.out.println("Temperature is: " + temperature);
+    }
+}
+Why loose coupled?
+WeatherStation doesn’t know about Display at all — just Observer interface.
+Display doesn’t know about WeatherStation — just Observer contract.
+You can swap in a new observer or observable without breaking existing code.
+
+ChatGPT said:
+Alright, let’s dig into push vs pull in Observer pattern — this is exactly where the “should observer keep a reference to observable?” question comes in.
+
+1. Push-based Observer (looser coupling)
+Idea: When observable notifies, it pushes all relevant data in the update() call.
+Observer doesn’t need to know the observable at all — it just reacts to the data.
+Example:
+@Override
+public void notifyObservers() {
+    for (Observer o : observers) {
+        o.update(temperature); // Push the data
+    }
+}
+class Display implements Observer {
+    @Override
+    public void update(int temperature) {
+        System.out.println("Temp: " + temperature);
+    }
+}
+✅ Pros:
+Completely decoupled — observer doesn’t hold observable reference.
+Easy to test.
+❌ Cons:
+Observable must decide what data to send (might send too much or too little).
+
+2. Pull-based Observer (more coupling)
+Idea: When observable notifies, it just signals “something changed” — observer pulls data it needs from observable.
+This means observer must hold a reference to the observable (at least via an interface).
+Example:
+@Override
+public void notifyObservers() {
+    for (Observer o : observers) {
+        o.update(this); // Pass reference to self
+    }
+}
+
+class Display implements Observer {
+    private final Observable observable;
+    public Display(Observable observable) {
+        this.observable = observable;
+    }
+    @Override
+    public void update(Observable o) {
+        int temperature = ((WeatherStation) o).getTemperature();
+        System.out.println("Temp: " + temperature);
+    }
+}
+✅ Pros:
+Observer can fetch exactly what it needs, not just what observable chooses to send.
+More flexible when observable has lots of data.
+❌ Cons:
+More coupling — observer must know observable’s API (or at least cast it to the right type).
+Harder to swap out observable without breaking observers.
+When to choose which
+Push → when data to send is simple and consistent across observers (e.g., a single temperature value).
+Pull → when observers need different slices of observable’s state, and it’s inefficient to push everything.
+
+ChatGPT said:
+Yes — there are other ways to implement the Observer idea that avoid the classic A has B, B has A trap entirely.
+The most common alternatives fall into three buckets: event bus, reactive streams, and pub-sub with message brokers.
+
+1. Event Bus (Decoupled In-Process Communication)
+Instead of the observable directly tracking observers:
+Both Observable and Observer talk to a mediator (event bus).
+The bus handles registrations and broadcasts.
+Example:
+class EventBus {
+    private Map<String, List<Consumer<Object>>> listeners = new HashMap<>();
+    public void subscribe(String event, Consumer<Object> listener) {
+        listeners.computeIfAbsent(event, k -> new ArrayList<>()).add(listener);
+    }
+    public void publish(String event, Object data) {
+        for (var listener : listeners.getOrDefault(event, List.of())) {
+            listener.accept(data);
+        }
+    }
+}
+Effect:
+Observable → bus.publish("temperatureChanged", 25)
+Observer → bus.subscribe("temperatureChanged", temp -> { ... })
+Neither knows about the other at all.
+
+2. Reactive Streams (RxJava, Project Reactor, etc.)
+You model your observable as a stream of events.
+Observers subscribe to the stream and handle emissions asynchronously.
+Example (RxJava style):
+Observable<Integer> temperatureStream = Observable.create(emitter -> {
+    // emit new temps
+    emitter.onNext(25);
+    emitter.onNext(26);
+});
+temperatureStream.subscribe(temp -> System.out.println("Temp: " + temp));
+Effect:
+No manual register/notify logic.
+Streams are first-class objects, so you can map, filter, merge, etc.
+
+3. Pub-Sub via Message Broker (Kafka, RabbitMQ, Redis Pub/Sub)
+Publisher sends messages to a topic/channel.
+Subscribers listen to that topic.
+Often used when observer and observable are in different processes/machines.
+Example:
+Weather station publishes to topic weather.temperature.
+Displays subscribe to that topic.
+Communication goes through broker → completely decoupled, even across the network.
+
+
+--------------------------------Main summary---------------------------------
+Exactly — you’ve spotted the core truth:
+you never get zero coupling; you just move the coupling to a place that’s easier to manage or scale.
+Let’s break this down step-by-step:
+1. What coupling are we moving?
+In classic Observer, the observable holds a list of observers, so it’s directly aware of them (even if only via an interface).
+In Event Bus / Pub-Sub, both observable and observer now depend on the broker’s API, not on each other.
+So yes — they are now coupled to the mediator instead of each other.
+2. Why is this better?
+The benefit isn’t that coupling disappears — it’s that:
+Coupling becomes uniform → everyone just talks to the same message API.
+Direct dependencies between features are removed → you can add/remove observers without touching observable code.
+Observable doesn’t even know if there are any observers → great for scaling and loose deployment.
+3. Real benefits of decoupling through a mediator
+Independence in deployment
+With a broker, observable and observer can run in different processes or machines.
+You can scale observers separately (e.g., 5 observers for heavy processing, 1 observable source).
+Pluggability
+Add a new observer without touching existing observable code.
+Remove an observer without recompiling anything else.
+Asynchronous communication
+Observable doesn’t block waiting for observers to finish work.
+Great for high throughput, distributed systems.
+Testability
+You can mock the broker easily and test publisher/subscriber logic in isolation.

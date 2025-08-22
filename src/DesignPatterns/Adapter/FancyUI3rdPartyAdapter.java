@@ -7,7 +7,7 @@ public class FancyUI3rdPartyAdapter implements IMultiRestoApp{
         fancyUI3rdPartyService = new FancyUI3rdParty();
     }
     @Override
-    public void displayMenu(XmlData xmlData){
+    public void displayMenus(XmlData xmlData){
         JsonData jsonData = convertXMLToJson(xmlData);
         fancyUI3rdPartyService.displayMenus(jsonData);
     }

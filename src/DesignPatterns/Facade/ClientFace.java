@@ -6,6 +6,7 @@ public class ClientFace {
     public Facade facade = new Facade();
 
     public void executeThings(){
+//        Do your things here by using facade
         facade.execute();
     }
 
